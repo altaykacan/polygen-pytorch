@@ -48,6 +48,50 @@ def random_shift(vertices: torch.Tensor, shift_factor: float = 0.25) -> torch.Te
     vertices += shift
     return vertices
 
+# obj file processing code taken from original PolyGen repo: https://github.com/google-deepmind/deepmind-research/tree/master/polygen
+def read_obj_file(obj_file):
+  """Read vertices and faces from already opened file."""
+  vertex_list = []
+  flat_vertices_list = []
+  flat_vertices_indices = {}
+  flat_triangles = []
+
+  for line in obj_file:
+    tokens = line.split()
+    if not tokens:
+      continue
+    line_type = tokens[0]
+    # We skip lines not starting with v or f.
+    if line_type == 'v':
+      vertex_list.append([float(x) for x in tokens[1:]])
+    elif line_type == 'f':
+      triangle = []
+      for i in range(len(tokens) - 1):
+        vertex_name = tokens[i + 1]
+        if vertex_name in flat_vertices_indices:
+          triangle.append(flat_vertices_indices[vertex_name])
+          continue
+        flat_vertex = []
+        for index in six.ensure_str(vertex_name).split('/'):
+          if not index:
+            continue
+          # obj triangle indices are 1 indexed, so subtract 1 here.
+          flat_vertex += vertex_list[int(index) - 1]
+        flat_vertex_index = len(flat_vertices_list)
+        flat_vertices_list.append(flat_vertex)
+        flat_vertices_indices[vertex_name] = flat_vertex_index
+        triangle.append(flat_vertex_index)
+      flat_triangles.append(triangle)
+
+  return np.array(flat_vertices_list, dtype=np.float32), flat_triangles
+
+
+def read_obj(obj_path):
+  """Open .obj file from the path provided and read vertices and faces."""
+
+  with open(obj_path) as obj_file:
+    return read_obj_file(obj_file)
+
 def write_obj(
     vertices: np.ndarray,
     faces: List[List[int]],

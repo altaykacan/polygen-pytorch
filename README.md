@@ -1,3 +1,7 @@
+>This is a fork made for personal use. Please check out the original repo [here](https://github.com/anshulcgm/polygen) and the official TensorFlow version from DeepMind [here](https://github.com/google-deepmind/deepmind-research/tree/master/polygen). I really appreciate the PyTorch port because I have no idea about TensorFlow! :)
+
+
+---
 # A Pytorch Implementation of Polygen: An Autoregressive Generative Model of 3D Meshes
 
 ## Description

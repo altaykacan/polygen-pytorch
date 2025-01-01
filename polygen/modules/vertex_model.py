@@ -66,7 +66,7 @@ class VertexModel(pl.LightningModule):
         )
         self.linear_layer = nn.Linear(self.embedding_dim, 2 ** self.quantization_bits + 1)
 
-        zero_embeddings_tensor = torch.randn([1, 1, self.embedding_dim], device=self.device)
+        zero_embeddings_tensor = torch.randn([1, 1, self.embedding_dim], device=self.device) # this is the beginning of sequence (BOS) token!!!!
         self.zero_embed = nn.Parameter(zero_embeddings_tensor)
 
         self.learning_rate = learning_rate
@@ -109,7 +109,7 @@ class VertexModel(pl.LightningModule):
             embeddings: A Tensor of shape [sample_length + 1, batch_size]. Represents combination of embeddings with global context embeddings. The first and second
                         dimensions are transposed for the sake of the decoder.
         """
-        input_shape = vertices.shape
+        input_shape = vertices.shape # has one less token than the actual sequence lenghts in batch
         batch_size, seq_length = input_shape[0], input_shape[1]
         coord_embeddings = self.coord_embedder(
             torch.fmod(torch.arange(seq_length, device=self.device), 3)
@@ -121,7 +121,7 @@ class VertexModel(pl.LightningModule):
             vertices
         )  # Vert embeddings will be of shape [batch_size, seq_length, embed_size]
         if global_context_embedding is None:
-            zero_embed_tiled = torch.repeat_interleave(self.zero_embed, batch_size, dim=0)
+            zero_embed_tiled = torch.repeat_interleave(self.zero_embed, batch_size, dim=0) # repeats the BOS token (with learned embedding) for the batch
         else:
             zero_embed_tiled = global_context_embedding[:, None].to(
                 torch.float32
@@ -143,7 +143,7 @@ class VertexModel(pl.LightningModule):
         Returns:
             outputs: Tensor of shape [batch_size, sequence_length, 2 ** self.quantization_bits + 1].
         """
-        output = self.linear_layer(inputs)
+        output = self.linear_layer(inputs) # maps hidden_dim size vectors to "vocab_size" dimensional vectors
         return output
 
     def _create_dist(
@@ -169,7 +169,9 @@ class VertexModel(pl.LightningModule):
         Returns:
             logits: Logits that can be used to create a categorical distribution to sample the next vertex.
         """
-        decoder_inputs = self._embed_inputs(vertices.to(torch.int64), global_context_embedding)
+        # vertices has dims [B, max_vertices_in_batch * 3] (without appended stop token)
+        # decoder_inputs has dims [max_vertices_in_batch * 3 + 1, B, hidden_dim]
+        decoder_inputs = self._embed_inputs(vertices.to(torch.int64), global_context_embedding) # [T, B, hidden_dim], T is the sequence length
         if cache is not None:
             decoder_inputs = decoder_inputs[-1:, :]
         if sequential_context_embedding is not None:
@@ -182,30 +184,32 @@ class VertexModel(pl.LightningModule):
             0, 1
         )  # Transpose to convert from [seq_length, batch_size, embedding_dim] to [batch_size, seq_length, embedding_dim]
         # pass through linear layer
-        logits = self._project_to_logits(outputs)
+        logits = self._project_to_logits(outputs) # [batch_size, sequence_length, 2 ** self.quantization_bits + 1]
         logits = logits / temperature
         # remove the smaller logits
-        logits = top_k_logits(logits, top_k)
+        logits = top_k_logits(logits, top_k) # shape of the tensor doesn't change
         # then choose those that contribute to 90% of mass distribution
         logits = top_p_logits(logits, top_p)
         return logits
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
-        Forward method for Vertex Model
+        Forward method for Vertex Model that expects a batch of flattened vertex coordinates
+        appended with a STOP token.
+
         Args:
             batch: A dictionary with a key of vertices_flat that represents a flattened input sequence of vertices.
         Returns:
             logits: Logits that can be used to create a categorical distribution to sample the next vertex.
         """
         global_context, seq_context = self._prepare_context(batch)
-        vertices = batch["vertices_flat"]
+        vertices = batch["vertices_flat"] # [batch_size, max_vertices_in_batch + 1]
         logits = self._create_dist(
-            vertices[:, :-1],
+            vertices[:, :-1], # all elements of the sequence except the last one (the stop token we appended when creating the batch)
             global_context_embedding=global_context,
             sequential_context_embedding=seq_context,
         )
-        return logits
+        return logits # [batch_size, max_vertices_in_batch + 1, vocab_size]
 
     def training_step(self, vertex_model_batch: Dict[str, torch.Tensor], batch_idx: int) -> torch.float32:
         """Pytorch Lightning training step method

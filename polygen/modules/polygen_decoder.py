@@ -262,7 +262,8 @@ class TransformerDecoder(pl.LightningModule):
         Returns:
             out: A Tensor of shape [sequence_length, batch_size, embed_size]. The resultant tensor after the forward loop of all the decoder layers.
         """
-        sz = inputs.shape[0]
-        mask = self.generate_square_subsequent_mask(sz)
+        sz = inputs.shape[0] # sequence length (elements in batch are padded)
+        mask = self.generate_square_subsequent_mask(sz) # lower triangular matrix for causal attention
         out = self.decoder(inputs, memory=sequential_context_embeddings, tgt_mask=mask, cache=cache)
-        return out
+        return out # has the output embeddings of all the tokens
+

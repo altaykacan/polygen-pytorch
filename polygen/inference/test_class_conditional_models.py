@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 import torch
 import pytorch_lightning as pl
-from pytorch3d.io import save_obj
+# from pytorch3d.io import save_obj
 
 import hydra
 from hydra.utils import instantiate
@@ -145,7 +145,8 @@ def write_vertices_to_obj_files(samples: Dict[str, torch.Tensor], directory_name
         curr_verts = vertices[i, : num_vertices[i]]
         curr_faces = torch.zeros([0, 3]).to(torch.long)
         save_path = os.path.join(directory_name, f"{i}.obj")
-        save_obj(save_path, curr_verts, curr_faces)
+        # save_obj(save_path, curr_verts, curr_faces)
+        data_utils.write_obj(curr_verts, curr_faces, save_path)
 
 def write_vertices_and_faces_to_obj(vertex_samples: Dict[str, torch.Tensor], face_samples: Dict[str, torch.Tensor], directory_name: str) -> None:
     """Write generated vertices and faces to .obj files
@@ -157,7 +158,7 @@ def write_vertices_and_faces_to_obj(vertex_samples: Dict[str, torch.Tensor], fac
     """
     if not os.path.exists(directory_name):
         os.makedirs(directory_name)
-    
+
     vertices = vertex_samples["vertices"]
     num_vertices = vertex_samples["num_vertices"]
     faces = face_samples["faces"]

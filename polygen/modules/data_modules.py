@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader, random_split
 from torchvision.io import read_image
 import torchvision.transforms as T
-from pytorch3d.io import load_obj
+# from pytorch3d.io import load_obj
 import pytorch_lightning as pl
 from PIL import Image
 
@@ -52,8 +52,10 @@ class ShapenetDataset(Dataset):
             mesh_dict: Dictionary containing vertices, faces and class label
         """
         mesh_file = self.all_files[idx]
-        vertices, faces, _ = load_obj(mesh_file)
-        faces = faces.verts_idx
+        # vertices, faces, _ = load_obj(mesh_file)
+        vertices, faces = data_utils.read_obj(mesh_file)
+        vertices  = torch.from_numpy(vertices)
+        # faces = faces.verts_idx
         vertices = vertices[:, [2, 0, 1]]
         vertices = data_utils.center_vertices(vertices)
         vertices = data_utils.normalize_vertices_scale(vertices)
@@ -98,7 +100,8 @@ class ImageDataset(Dataset):
         img_file = self.images[idx]
         folder_path = "/".join(img_file.split("/")[:-2])
         model_file = os.path.sep.join([folder_path, "models", "model_normalized.obj"])
-        verts, faces, _ = load_obj(model_file)
+        # verts, faces, _ = load_obj(model_file)
+        verts, faces = data_utils.read_obj(model_file)
         faces = faces.verts_idx
         verts = verts[:, [2, 0, 1]]
         vertices = data_utils.center_vertices(verts)
@@ -134,6 +137,7 @@ class PolygenDataModule(pl.LightningDataModule):
         apply_random_shift_vertices: bool = True,
         apply_random_shift_faces: bool = True,
         shuffle_vertices: bool = True,
+        num_workers: int = 0, # 0 for debugging
     ) -> None:
         """
         Args:
@@ -163,6 +167,8 @@ class PolygenDataModule(pl.LightningDataModule):
         self.data_dir = data_dir
         self.batch_size = batch_size
 
+        self.num_workers = num_workers
+
         if use_image_dataset:
             self.shapenet_dataset = ImageDataset(training_dir=self.data_dir, image_extension=img_extension)
         else:
@@ -190,29 +196,29 @@ class PolygenDataModule(pl.LightningDataModule):
     def collate_vertex_model_batch(self, ds: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
         """Applying padding to different length vertex sequences so we can batch them
         Args:
-            ds: List of dictionaries where each dictionary has information about a 3D object
+            ds: List of dictionaries where each dictionary has information about a 3D object, this is the batch
         Returns
             vertex_model_batch: A single dictionary which represents the whole batch
         """
         vertex_model_batch = {}
         num_vertices_list = [shape_dict["vertices"].shape[0] for shape_dict in ds]
         max_vertices = max(num_vertices_list)
-        num_elements = len(ds)
-        vertices_flat = torch.zeros([num_elements, max_vertices * 3 + 1], dtype=torch.int32)
+        num_elements = len(ds) # number of elements in a batch
+        vertices_flat = torch.zeros([num_elements, max_vertices * 3 + 1], dtype=torch.int32) # this is for the whole batch
         class_labels = torch.zeros([num_elements], dtype=torch.int32)
         vertices_flat_mask = torch.zeros_like(vertices_flat, dtype=torch.int32)
         for i, element in enumerate(ds):
-            vertices = element["vertices"]
+            vertices = element["vertices"] # this is for the current element in batch
             if self.apply_random_shift_vertices:
                 vertices = data_utils.random_shift(vertices)
             initial_vertex_size = vertices.shape[0]
             padding_size = max_vertices - initial_vertex_size
             vertices_permuted = torch.stack([vertices[..., 2], vertices[..., 1], vertices[..., 0]], dim=-1)
             curr_vertices_flat = vertices_permuted.reshape([-1])
-            vertices_flat[i] = F.pad(curr_vertices_flat + 1, [0, padding_size * 3 + 1])[None]
+            vertices_flat[i] = F.pad(curr_vertices_flat + 1, [0, padding_size * 3 + 1])[None] # +1 does the reindexing of the vertex coords
             class_labels[i] = torch.Tensor([element["class_label"]])
-            vertices_flat_mask[i] = torch.zeros_like(vertices_flat[i], dtype=torch.float32)
-            vertices_flat_mask[i, : initial_vertex_size * 3 + 1] = 1
+            vertices_flat_mask[i] = torch.zeros_like(vertices_flat[i], dtype=torch.float32) # this is probably not needed
+            vertices_flat_mask[i, : initial_vertex_size * 3 + 1] = 1 # padding tokens are left as zero, +1 because last element in slice is not included
         vertex_model_batch["vertices_flat"] = vertices_flat
         vertex_model_batch["class_label"] = class_labels
         vertex_model_batch["vertices_flat_mask"] = vertices_flat_mask
@@ -340,8 +346,8 @@ class PolygenDataModule(pl.LightningDataModule):
             self.batch_size,
             shuffle=True,
             collate_fn=self.collate_fn,
-            num_workers=16,
-            persistent_workers=True,
+            num_workers=self.num_workers,
+            persistent_workers=False,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -354,8 +360,8 @@ class PolygenDataModule(pl.LightningDataModule):
             self.batch_size,
             shuffle=False,
             collate_fn=self.collate_fn,
-            num_workers=4,
-            persistent_workers=True,
+            num_workers=self.num_workers,
+            persistent_workers=False,
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -368,6 +374,6 @@ class PolygenDataModule(pl.LightningDataModule):
             self.batch_size,
             shuffle=False,
             collate_fn=self.collate_fn,
-            num_workers=8,
-            persistent_workers=True,
+            num_workers=self.num_workers,
+            persistent_workers=False,
         )
